@@ -1,0 +1,69 @@
+plugins {
+    id "de.gesellix.docker" version "2015-07-05T16-55-10"
+}
+
+docker {
+    dockerHost = System.env['DOCKER_HOST']?.replace("tcp", "http");
+}
+
+import de.gesellix.gradle.docker.tasks.*
+
+task copyDocker(type: Copy) {
+    from 'src/test/docker/'
+    into 'build/docker-grouper/'
+    include 'Dockerfile', 'provisioningTargetAttributes.gsh'
+}
+
+task copyPythonToDocker(type: Copy) {
+    dependsOn copyDocker
+
+    from 'src/main/python/'
+    into 'build/docker-grouper/python/'
+}
+
+task buildImage(type: DockerBuildTask) {
+    dependsOn copyPythonToDocker
+
+    imageName = "test/grouper-dev"
+    buildContextDirectory = file('build/docker-grouper/')
+
+    doFirst {
+        logger.lifecycle("Building the initial Grouper image may take a long time. Have plenty of bandwidth.")
+    }
+}
+
+task runContainer(type: DockerRunTask) {
+    dependsOn buildImage
+
+    imageName = "test/grouper-dev"
+  	containerName = "grouper-dev"
+  	containerConfiguration = [
+      	"ExposedPorts": ["8080/tcp": [:]],
+      	"HostConfig"  : [
+           "Binds": [projectDir.toString() + "/build/libs:/jar-location"],
+           "PortBindings": [
+         		  "8080/tcp": [["HostPort": "8080"]],
+              "5005/tcp": [["HostPort": "5005"]],
+              "389/tcp": [["HostPort": "10389"]]
+     		    ]
+        ]
+  	]
+}
+
+task stopContainer(type: DockerStopTask) {
+  containerId = "grouper-dev"
+}
+
+task removeContainer(type: DockerRmTask) {
+  dependsOn stopContainer
+
+  containerId = "grouper-dev"
+}
+
+task resetContainer() {
+    dependsOn removeContainer
+}
+
+clean {
+    dependsOn resetContainer
+}
